@@ -96,7 +96,7 @@ def repurpose(X_repurpose, target, model, drug_names = None, target_name = None,
 		if model.binary:
 			table_header = ["Rank", "Drug Name", "Target Name", "Interaction", "Probability"]
 		else:
-			### regression 
+			### regression
 			table_header = ["Rank", "Drug Name", "Target Name", "Binding Score"]
 		table = PrettyTable(table_header)
 		if drug_names is None:
@@ -282,13 +282,15 @@ class DBTA:
 		self.model = Classifier(self.model_drug, self.model_protein, **config)
 		self.config = config
 
-		if 'cuda_id' in self.config:
-			if self.config['cuda_id'] is None:
-				self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-			else:
-				self.device = torch.device('cuda:' + str(self.config['cuda_id']) if torch.cuda.is_available() else 'cpu')
-		else:
-			self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+		# if 'cuda_id' in self.config:
+		# 	if self.config['cuda_id'] is None:
+		# 		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+		# 	else:
+		# 		self.device = torch.device('cuda:' + str(self.config['cuda_id']) if torch.cuda.is_available() else 'cpu')
+		# else:
+		# 	self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+		self.device = torch.device('cpu')
 		
 		self.drug_encoding = drug_encoding
 		self.target_encoding = target_encoding
@@ -559,7 +561,7 @@ class DBTA:
 	def mpi_train(self, train, val = None, test = None, verbose = True):
 		"""
 		Args:
-			train_subset ([type]): [description]
+			train ([type]): [description]
 			val ([type], optional): [description]. Defaults to None.
 			test ([type], optional): [description]. Defaults to None.
 			verbose (bool, optional): [description]. Defaults to True.
@@ -567,16 +569,17 @@ class DBTA:
 		Raises:
 			ImportError: [description]
 		"""
-
+		# Import MPI for distributed training
 		try:
 			from mpi4py import MPI
 		except ImportError:
 			raise ImportError
 		
+		# Init MPI
 		comm = MPI.COMM_WORLD
 		size = comm.Get_size()
 		rank = comm.Get_rank()
-			
+		
 		if verbose:
 			print(f"Process {rank} of {size}")
 
@@ -592,17 +595,21 @@ class DBTA:
 
 		self.model = self.model.to(self.device)
 
+		# We first use multi-processing with CPU on node.
+		# ------------------------------------------------------------------------
 		# support multiple GPUs
-		if torch.cuda.device_count() > 1:
-			if verbose:
-				print("Let's use " + str(torch.cuda.device_count()) + " GPUs!")
-			self.model = nn.DataParallel(self.model, dim = 0)
-		elif torch.cuda.device_count() == 1:
-			if verbose:
-				print("Let's use " + str(torch.cuda.device_count()) + " GPU!")
-		else:
-			if verbose:
-				print("Let's use CPU/s!")
+		# if torch.cuda.device_count() > 1:
+		# 	if verbose:
+		# 		print("Let's use " + str(torch.cuda.device_count()) + " GPUs!")
+		# 	self.model = nn.DataParallel(self.model, dim = 0)
+		# elif torch.cuda.device_count() == 1:
+		# 	if verbose:
+		# 		print("Let's use " + str(torch.cuda.device_count()) + " GPU!")
+		# else:
+		# 	if verbose:
+		# 		print("Let's use CPU/s!")
+		# ------------------------------------------------------------------------
+
 		# Future TODO: support multiple optimizers with parameters
 		opt = torch.optim.Adam(self.model.parameters(), lr = lr, weight_decay = decay)
 		if verbose:
@@ -617,12 +624,15 @@ class DBTA:
 		elif self.drug_encoding in ['DGL_GCN', 'DGL_NeuralFP', 'DGL_GIN_AttrMasking', 'DGL_GIN_ContextPred', 'DGL_AttentiveFP']:
 			params['collate_fn'] = dgl_collate_func
 
+		# Debug block
 		# ----------------------------------------------------------------
-		for i in range(size):
-			comm.Barrier()
-			if rank == i:
-				print("train size: ", len(train))
-				print("Rank: ", rank, "\n config: ", self.config)
+		# if DEBUG:
+		# 	for i in range(size):
+		# 		comm.Barrier()
+		# 		if rank == i:
+		# 			print("train size: ", len(train))
+		# 			print("Rank: ", rank, "\n config: ", self.config)
+		# ----------------------------------------------------------------
 		
 		# Split the training data
 		split_train_data = np.array_split(train, size)[rank]
@@ -631,31 +641,37 @@ class DBTA:
 		first_value = array_values[0]
 		new_values = array_values - first_value
 
-		for i in range(size):
-			comm.Barrier()
-			if rank == i:
-				print("### Rank: ", rank)
-				print("### Splitted data size (", type(split_train_data), "): ", len(split_train_data))
-				print("### split_train_data.index.values (", type(split_train_data.index.values), "): ", split_train_data.index.values)
-				print("### new_values (", type(new_values), "): ", new_values)
-				print("### split_train_data.Label.values: ", split_train_data.Label.values)
-				print("### split_train_data: ", split_train_data)
+		# Debug block
+		# ----------------------------------------------------------------
+		# if DEBUG:
+		# 	for i in range(size):
+		# 		comm.Barrier()
+		# 		if rank == i:
+		# 			print("### Rank: ", rank)
+		# 			print("### Splitted data size (", type(split_train_data), "): ", len(split_train_data))
+		# 			print("### split_train_data.index.values (", type(split_train_data.index.values), "): ", split_train_data.index.values)
+		# 			print("### new_values (", type(new_values), "): ", new_values)
+		# 			print("### split_train_data.Label.values: ", split_train_data.Label.values)
+		# 			print("### split_train_data: ", split_train_data)
+		# ----------------------------------------------------------------
 
 		# Create a DataLoader with the splitted training data
 		training_generator = data.DataLoader(data_process_loader(new_values, split_train_data.Label.values, split_train_data, **self.config), **params)
 
-		for i in range(size):
-			comm.Barrier()
-			if rank == i:
-				print("Rank: ", rank)
-				print("Size: ", len(training_generator))
-				for idx, batch in enumerate(training_generator):
-					print(f"Batch {idx}:")
-					print(batch)
-					if idx > 1:
-						break
-		raise
-		# ----------------------------------------------------------------	
+		# Debug block
+		# ----------------------------------------------------------------
+		# if DEBUG:
+		# 	for i in range(size):
+		# 		comm.Barrier()
+		# 		if rank == i:
+		# 			print("Rank: ", rank)
+		# 			print("Size: ", len(training_generator))
+		# 			for idx, batch in enumerate(training_generator):
+		# 				print(f"Batch {idx}:")
+		# 				print(batch)
+		# 				if idx > 1:
+		# 					break
+		# ----------------------------------------------------------------
 
 		if val is not None:
 			validation_generator = data.DataLoader(data_process_loader(val.index.values, val.Label.values, val, **self.config), **params)
