@@ -566,6 +566,10 @@ class DBTA:
 
 		Raises:
 			ImportError: [description]
+
+		Usage:
+			Better with cluster computing, offer a hostfile for multi processing.
+			mpirun -np <node_num> -hostfile <hostfile> <program_name>
 		"""
 
 		try:
