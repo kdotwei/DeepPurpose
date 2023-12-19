@@ -282,15 +282,13 @@ class DBTA:
 		self.model = Classifier(self.model_drug, self.model_protein, **config)
 		self.config = config
 
-		# if 'cuda_id' in self.config:
-		# 	if self.config['cuda_id'] is None:
-		# 		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-		# 	else:
-		# 		self.device = torch.device('cuda:' + str(self.config['cuda_id']) if torch.cuda.is_available() else 'cpu')
-		# else:
-		# 	self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-		self.device = torch.device('cpu')
+		if 'cuda_id' in self.config:
+			if self.config['cuda_id'] is None:
+				self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+			else:
+				self.device = torch.device('cuda:' + str(self.config['cuda_id']) if torch.cuda.is_available() else 'cpu')
+		else:
+			self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 		
 		self.drug_encoding = drug_encoding
 		self.target_encoding = target_encoding
@@ -602,16 +600,16 @@ class DBTA:
 		# We first use multi-processing with CPU on node.
 		# ------------------------------------------------------------------------
 		# support multiple GPUs
-		# if torch.cuda.device_count() > 1:
-		# 	if verbose:
-		# 		print("Let's use " + str(torch.cuda.device_count()) + " GPUs!")
-		# 	self.model = nn.DataParallel(self.model, dim = 0)
-		# elif torch.cuda.device_count() == 1:
-		# 	if verbose:
-		# 		print("Let's use " + str(torch.cuda.device_count()) + " GPU!")
-		# else:
-		# 	if verbose:
-		# 		print("Let's use CPU/s!")
+		if torch.cuda.device_count() > 1:
+			if verbose:
+				print("Let's use " + str(torch.cuda.device_count()) + " GPUs!")
+			self.model = nn.DataParallel(self.model, dim = 0)
+		elif torch.cuda.device_count() == 1:
+			if verbose:
+				print("Let's use " + str(torch.cuda.device_count()) + " GPU!")
+		else:
+			if verbose:
+				print("Let's use CPU/s!")
 		# ------------------------------------------------------------------------
 
 		# Future TODO: support multiple optimizers with parameters
@@ -631,9 +629,9 @@ class DBTA:
 		# Debug block
 		# ----------------------------------------------------------------
 		# if DEBUG:
-		# 	for i in range(size):
+		# 	for rank_i in range(size):
 		# 		comm.Barrier()
-		# 		if rank == i:
+		# 		if rank == rank_i:
 		# 			print("train size: ", len(train))
 		# 			print("Rank: ", rank, "\n config: ", self.config)
 		# ----------------------------------------------------------------
@@ -726,6 +724,16 @@ class DBTA:
 					v_d = v_d.float().to(self.device)                
 					#score = self.model(v_d, v_p.float().to(self.device))
                
+				# Debug block
+				# ----------------------------------------------------------------
+				# if DEBUG:
+				# 	for rank_i in range(size):
+				# 		comm.Barrier()
+				# 		if rank == rank_i:
+				# 			print("Rank: ", rank)
+				# 			print("Device: ", self.device)
+				# ----------------------------------------------------------------
+				
 				score = self.model(v_d, v_p)
 
 				label = Variable(torch.from_numpy(np.array(label)).float()).to(self.device)
