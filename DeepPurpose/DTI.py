@@ -1,9 +1,11 @@
 import torch
+from torch.distributed import all_reduce, ReduceOp
 from torch.autograd import Variable
 import torch.nn.functional as F
 from torch.utils import data
 from torch.utils.data import SequentialSampler
 from torch import nn 
+import torch.distributed as dist
 
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -708,7 +710,7 @@ class DBTA:
 		table = PrettyTable(valid_metric_header)
 		float2str = lambda x:'%0.4f'%x
 		if verbose:
-			print('--- Go for Training ---')
+			print('Rank ', rank, ' start training...')
 		writer = SummaryWriter()
 		t_start = time() 
 		iteration_loss = 0
@@ -733,7 +735,7 @@ class DBTA:
 				# 			print("Rank: ", rank)
 				# 			print("Device: ", self.device)
 				# ----------------------------------------------------------------
-				
+
 				score = self.model(v_d, v_p)
 
 				label = Variable(torch.from_numpy(np.array(label)).float()).to(self.device)
@@ -758,11 +760,33 @@ class DBTA:
 				if verbose:
 					if (i % 100 == 0):
 						t_now = time()
-						print('Training at Epoch ' + str(epo + 1) + ' iteration ' + str(i) + \
+						print('[RANK ', rank, '] Training at Epoch ' + str(epo + 1) + ' iteration ' + str(i) + \
 							' with loss ' + str(loss.cpu().detach().numpy())[:7] +\
-							". Total time " + str(int(t_now - t_start)/3600)[:7] + " hours") 
+							". Total time " + str(int(t_now - t_start)/3600)[:7] + " hours")
 						### record total run time
-						
+
+			for param in self.model.parameters():
+				# Debug block
+				# ----------------------------------------------------------------
+				# if DEBUG:
+				# 	for rank_i in range(size):
+				# 		comm.Barrier()
+				# 		if rank == rank_i:
+				# 			print("Rank: ", rank)
+				# 			print(param)
+				# ----------------------------------------------------------------
+				# CHange the tensor into numpy array
+				param_data = param.data.cpu().numpy()
+
+				# Create a buffer
+				buffer = np.zeros_like(param_data)
+
+				# Aggregate the parameters
+				comm.Allreduce(param_data, buffer, op=MPI.SUM)
+
+				# Assign the avarage values to the parameter
+				param.data = torch.from_numpy(buffer / size).to(self.device)
+
 			if val is not None:
 				##### validate, select the best model up to now 
 				with torch.set_grad_enabled(False):
@@ -773,7 +797,7 @@ class DBTA:
 						valid_metric_record.append(lst)
 						if auc > max_auc:
 							model_max = copy.deepcopy(self.model)
-							max_auc = auc   
+							max_auc = auc
 						if verbose:
 							print('Validation at Epoch '+ str(epo + 1) + ', AUROC: ' + str(auc)[:7] + \
 							  ' , AUPRC: ' + str(auprc)[:7] + ' , F1: '+str(f1)[:7] + ' , Cross-entropy Loss: ' + \
