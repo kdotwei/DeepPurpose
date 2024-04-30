@@ -14,3 +14,4 @@ prettytable
 tensorboard
 ax-platform
 dgllife
+mpi4py

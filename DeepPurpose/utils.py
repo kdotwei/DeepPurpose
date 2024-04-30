@@ -873,7 +873,7 @@ def generate_config(drug_encoding = None, target_encoding = None,
 					'result_folder': result_folder,
 					'binary': False,
 					'num_workers': num_workers,
-					'cuda_id': cuda_id                 
+					'cuda_id': cuda_id
 	}
 	if not os.path.exists(base_config['result_folder']):
 		os.makedirs(base_config['result_folder'])
